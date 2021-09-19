@@ -1,5 +1,6 @@
 const { validationResult } = require('express-validator')
-const Post = require('../models/post')
+const Post = require('../models/post');
+const User = require('../models/user');
 const fs = require('fs');
 const path = require('path');
 
@@ -7,7 +8,7 @@ function clearFile(filePath) {
   const p = path.join(path.dirname(require.main.filename), filePath);
   fs.unlink(p, err => {
       if (err) {
-          throw err;
+          console.log(err);
       }
   });
 };
@@ -51,15 +52,20 @@ module.exports.createPost = async (req, res, next) => {
         title,
         content,
         imageUrl,
-        creator: {
-            name: 'Duc Dang'
-        }
+        creator: req.userId
     });
 
-        const result = await postCreate.save()
+        const result = await postCreate.save();
+        const userCreatePost = await User.findById(req.userId);
+        userCreatePost.posts.push(postCreate);
+        await userCreatePost.save();
         res.status(201).json({
             message: 'Post created successfully',
-            post: result
+            post: result,
+            creator: {
+                _id: userCreatePost._id,
+                name: userCreatePost.name
+            }
         });
     } catch(err) {
         if (!err.statusCode) {
@@ -115,6 +121,11 @@ module.exports.updatePost = async (req, res, next) => {
             err.statusCode = 404;
             throw err;
         }
+        if (postFind.creator.toString() !== req.userId) {
+            const err = new Error('Not Authorization');
+            err.statusCode = 403;
+            throw err;
+        }
         if (imageUrl !== postFind.imageUrl) {
             clearFile(postFind.imageUrl);
         }
@@ -143,8 +154,17 @@ module.exports.deletePost = async (req, res, next) => {
             err.statusCode = 404;
             throw err;
         }
+        if (postFind.creator.toString() !== req.userId) {
+            const err = new Error('Not Authorization');
+            err.statusCode = 403;
+            throw err;
+        }
         clearFile(postFind.imageUrl);
         const result = await Post.findByIdAndDelete(postId);
+        const userDeletePost = await User.findById(req.userId);
+        //pull method xoa post voi postId nam trong model user, posts phai la subdoc(1 array)
+        userDeletePost.posts.pull(postId);
+        await userDeletePost.save();
         res.status(200).json({
             post: result
         })
