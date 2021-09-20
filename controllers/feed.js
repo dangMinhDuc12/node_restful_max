@@ -3,6 +3,8 @@ const Post = require('../models/post');
 const User = require('../models/user');
 const fs = require('fs');
 const path = require('path');
+const io = require('../socket')
+
 
 function clearFile(filePath) {
   const p = path.join(path.dirname(require.main.filename), filePath);
@@ -19,7 +21,7 @@ module.exports.getPosts = async (req, res, next) => {
     const perPage = 2;
     try {
         const totalItems = await Post.find({}).estimatedDocumentCount();
-        const posts = await Post.find({}).skip((currentPage - 1) * perPage).limit(perPage);
+        const posts = await Post.find({}).sort({ createdAt: 'desc' }).skip((currentPage - 1) * perPage).limit(perPage).populate('creator');
         res.status(200).json({
             posts,
             totalItems
@@ -59,6 +61,16 @@ module.exports.createPost = async (req, res, next) => {
         const userCreatePost = await User.findById(req.userId);
         userCreatePost.posts.push(postCreate);
         await userCreatePost.save();
+        io.getIO().emit('posts', {
+            post: {
+                ...postCreate._doc,
+                creator: {
+                    _id: req.userId,
+                    name: userCreatePost.name
+                }
+            },
+            action: 'create',
+        })
         res.status(201).json({
             message: 'Post created successfully',
             post: result,
@@ -115,13 +127,13 @@ module.exports.updatePost = async (req, res, next) => {
             err.statusCode = 422;
             throw err;
         }
-        const postFind = await Post.findById(postId);
+        const postFind = await Post.findById(postId).populate('creator');
         if (!postFind) {
             const err = new Error('No Post Found');
             err.statusCode = 404;
             throw err;
         }
-        if (postFind.creator.toString() !== req.userId) {
+        if (postFind.creator._id.toString() !== req.userId) {
             const err = new Error('Not Authorization');
             err.statusCode = 403;
             throw err;
@@ -133,6 +145,10 @@ module.exports.updatePost = async (req, res, next) => {
         postFind.content = content;
         postFind.imageUrl = imageUrl;
         const result = await postFind.save();
+        io.getIO().emit('posts', {
+            action: 'update',
+            post: result
+        })
         res.status(200).json({
            post: result
         });
@@ -165,6 +181,10 @@ module.exports.deletePost = async (req, res, next) => {
         //pull method xoa post voi postId nam trong model user, posts phai la subdoc(1 array)
         userDeletePost.posts.pull(postId);
         await userDeletePost.save();
+        io.getIO().emit('posts', {
+            action: 'delete',
+            post: postId
+        })
         res.status(200).json({
             post: result
         })

@@ -1,4 +1,5 @@
 const express = require('express');
+const { createServer } = require('http');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const path = require('path');
@@ -63,8 +64,13 @@ app.use((err, req, res, next) => {
 (async () => {
     try {
         await mongoose.connect(process.env.MONGODB_URL);
-        console.log('connected to DB')
-        app.listen(8080);
+        console.log('connected to DB');
+        const httpServer = createServer(app);
+         const io = require('./socket').init(httpServer)
+        io.on('connection', socket => {
+            console.log('hello')
+        })
+        httpServer.listen(8080);
     } catch (e) {
         console.log(e)
     }
